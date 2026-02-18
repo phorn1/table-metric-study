@@ -1,0 +1,24 @@
+[project]
+name = "table-metric-study"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "apted",
+    "Levenshtein",
+    "lxml",
+    "beautifulsoup4",
+    "anthropic",
+    "python-dotenv",
+    "gradio",
+    "markdown",
+    "openai",
+    "pydantic",
+    "matplotlib>=3.10.8",
+    "scipy>=1.17.0",
+    "scipy-stubs~=1.17.0",
+    "eval-metrics-core",
+]
+
+[tool.uv.sources]
+eval-metrics-core = { git = "https://github.com/Unstructured-IO/unstructured-eval-metrics.git" }

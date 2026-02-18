@@ -1,0 +1,10 @@
+# Directories
+table_extraction/
+correlation_plots/
+
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
