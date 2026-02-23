@@ -828,6 +828,18 @@ wheels = [
 ]
 
 [[package]]
+name = "krippendorff"
+version = "0.8.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fd/1c/839234d9b9ca3c2c1f9445bb7f3022662face6cc6f9e3f915d8b7654dea7/krippendorff-0.8.2.tar.gz", hash = "sha256:f975bf4b5d93439d3264c4fc85a45d014aca9f5f9fca17f18fa2f3c89ee158ca", size = 18229 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/01/4f/597b65bc88a031ee68b459fec05f8b40a60c3c3f6d5cde5b1403d965d199/krippendorff-0.8.2-py3-none-any.whl", hash = "sha256:1922ff73f7caa5faab6237a1abcb4f3e6ab605e3f7d39acd7998176873b8cd57", size = 18616 },
+]
+
+[[package]]
 name = "levenshtein"
 version = "0.27.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1945,6 +1957,20 @@ wheels = [
 ]
 
 [[package]]
+name = "seaborn"
+version = "0.13.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pandas" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/86/59/a451d7420a77ab0b98f7affa3a1d78a313d2f7281a57afb1a34bae8ab412/seaborn-0.13.2.tar.gz", hash = "sha256:93e60a40988f4d65e9f4885df477e2fdaff6b73a9ded434c1ab356dd57eefff7", size = 1457696 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/83/11/00d3c3dfc25ad54e731d91449895a79e4bf2384dc3ac01809010ba88f6d5/seaborn-0.13.2-py3-none-any.whl", hash = "sha256:636f8336facf092165e27924f223d3c62ca560b1f2bb5dff7ab7fad265361987", size = 294914 },
+]
+
+[[package]]
 name = "semantic-version"
 version = "2.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2012,6 +2038,7 @@ dependencies = [
     { name = "beautifulsoup4" },
     { name = "eval-metrics-core" },
     { name = "gradio" },
+    { name = "krippendorff" },
     { name = "levenshtein" },
     { name = "lxml" },
     { name = "markdown" },
@@ -2021,6 +2048,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "scipy" },
     { name = "scipy-stubs" },
+    { name = "seaborn" },
 ]
 
 [package.metadata]
@@ -2030,6 +2058,7 @@ requires-dist = [
     { name = "beautifulsoup4" },
     { name = "eval-metrics-core", git = "https://github.com/Unstructured-IO/unstructured-eval-metrics.git" },
     { name = "gradio" },
+    { name = "krippendorff", specifier = ">=0.8.2" },
     { name = "levenshtein" },
     { name = "lxml" },
     { name = "markdown" },
@@ -2039,6 +2068,7 @@ requires-dist = [
     { name = "python-dotenv" },
     { name = "scipy", specifier = ">=1.17.0" },
     { name = "scipy-stubs", specifier = "~=1.17.0" },
+    { name = "seaborn" },
 ]
 
 [[package]]

@@ -1,6 +1,7 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
+#     "krippendorff",
 #     "matplotlib",
 #     "numpy",
 #     "scipy",
@@ -13,7 +14,9 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import krippendorff
 from collections import Counter, defaultdict
+from itertools import combinations
 from scipy.stats import pearsonr, spearmanr, kendalltau
 from pathlib import Path
 
@@ -160,17 +163,65 @@ def main():
     # Inter-annotator agreement (rows with >= 2 human scores)
     multi = [r["human_scores"] for r in rows if len(r["human_scores"]) >= 2]
     if multi:
-        h1 = np.array([s[0] for s in multi])
-        h2 = np.array([s[1] for s in multi])
-        iaa_pearson, _ = pearsonr(h1, h2)
-        iaa_spearman, _ = spearmanr(h1, h2)
-        iaa_kendall, _ = kendalltau(h1, h2)
-        mean_abs_diff = np.mean(np.abs(h1 - h2))
-        print(f"\nInter-annotator agreement ({len(multi)} rows with ≥2 scores):")
-        print(f"  Pearson r:  {iaa_pearson:.4f}")
-        print(f"  Spearman ρ: {iaa_spearman:.4f}")
-        print(f"  Kendall τ:  {iaa_kendall:.4f}")
-        print(f"  Mean |diff|: {mean_abs_diff:.2f}")
+        max_ann = max(len(s) for s in multi)
+        print(f"\nInter-annotator agreement ({len(multi)} rows with ≥2 scores, up to {max_ann} annotators):")
+
+        # Krippendorff's alpha (handles missing data naturally)
+        reliability_data = np.full((max_ann, len(multi)), np.nan)
+        for col, scores in enumerate(multi):
+            for row, score in enumerate(scores):
+                reliability_data[row, col] = score
+        alpha = krippendorff.alpha(reliability_data, level_of_measurement="interval")
+        print(f"  Krippendorff's α (interval): {alpha:.4f}")
+
+        # Pairwise agreement for all annotator pairs
+        pair_results = []
+        for i, j in combinations(range(max_ann), 2):
+            valid = [(s[i], s[j]) for s in multi if len(s) > max(i, j)]
+            if len(valid) < 3:
+                continue
+            hi = np.array([v[0] for v in valid])
+            hj = np.array([v[1] for v in valid])
+            pr, _ = pearsonr(hi, hj)
+            sr, _ = spearmanr(hi, hj)
+            kt, _ = kendalltau(hi, hj)
+            mad = np.mean(np.abs(hi - hj))
+            pair_results.append((i, j, len(valid), pr, sr, kt, mad))
+            print(f"  Annotator {i+1} vs {j+1} (n={len(valid)}): "
+                  f"Pearson={pr:.4f}, Spearman={sr:.4f}, Kendall={kt:.4f}, MAD={mad:.2f}")
+
+        if len(pair_results) > 1:
+            avg_pr = np.mean([r[3] for r in pair_results])
+            avg_sr = np.mean([r[4] for r in pair_results])
+            avg_kt = np.mean([r[5] for r in pair_results])
+            avg_mad = np.mean([r[6] for r in pair_results])
+            print(f"  Average pairwise:            "
+                  f"Pearson={avg_pr:.4f}, Spearman={avg_sr:.4f}, Kendall={avg_kt:.4f}, MAD={avg_mad:.2f}")
+
+        # Human ceiling: leave-one-out r(H_i, mean(H_{-i}))
+        # Directly comparable to r(metric, mean(all H)) in the correlation table
+        print(f"\n  Human ceiling — r(annotator, mean of others):")
+        loo_pearsons, loo_spearmans, loo_kendalls = [], [], []
+        for i in range(max_ann):
+            rows_for_i = [s for s in multi if len(s) > i and len(s) >= 2]
+            if len(rows_for_i) < 3:
+                continue
+            hi = np.array([s[i] for s in rows_for_i])
+            h_others = np.array([np.mean([s[j] for j in range(len(s)) if j != i])
+                                 for s in rows_for_i])
+            pr, _ = pearsonr(hi, h_others)
+            sr, _ = spearmanr(hi, h_others)
+            kt, _ = kendalltau(hi, h_others)
+            loo_pearsons.append(pr)
+            loo_spearmans.append(sr)
+            loo_kendalls.append(kt)
+            print(f"    Annotator {i+1} vs mean(others) (n={len(rows_for_i)}): "
+                  f"Pearson={pr:.4f}, Spearman={sr:.4f}, Kendall={kt:.4f}")
+        if loo_pearsons:
+            print(f"    Average:                           "
+                  f"Pearson={np.mean(loo_pearsons):.4f}, "
+                  f"Spearman={np.mean(loo_spearmans):.4f}, "
+                  f"Kendall={np.mean(loo_kendalls):.4f}")
 
     metrics = extract_metric_vectors(rows)
 

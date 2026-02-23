@@ -15,9 +15,11 @@ dependencies = [
     "openai",
     "pydantic",
     "matplotlib>=3.10.8",
+    "seaborn",
     "scipy>=1.17.0",
     "scipy-stubs~=1.17.0",
     "eval-metrics-core",
+    "krippendorff>=0.8.2",
 ]
 
 [tool.uv.sources]

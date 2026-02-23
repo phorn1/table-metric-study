@@ -1,3 +1,6 @@
+# IDE
+.idea/
+
 # Directories
 table_extraction/
 correlation_plots/
