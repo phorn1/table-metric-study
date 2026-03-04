@@ -3,7 +3,6 @@
 
 # Directories
 table_extraction/
-correlation_plots/
 
 # Environment
 .env
