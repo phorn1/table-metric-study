@@ -1,99 +1,81 @@
 #!/usr/bin/env python3
-"""Compute TEDS, TEDS-structure-only, and GriTS scores for all table pairs in all_tables.jsonl."""
+"""Compute TEDS, TEDS-structure-only, GriTS, and SCORE metrics for all table pairs in all_tables.json."""
 
 import json
-import sys
+from pathlib import Path
 
-from scorers.normalize import normalized_html_table, normalized_markdown_table, normalized_latex_table
+from scorers.normalize import normalize_table
 from scorers.teds import TEDS
 from scorers.grits import grits_from_html
-from scorers.score_benchmark import score_from_html, ZERO_SCORES
+from scorers.score_benchmark import score_from_html
+
+DATA_PATH = Path(__file__).parent / "all_tables.json"
 
 
 def main():
-    input_path = "all_tables.jsonl"
+    with open(DATA_PATH, encoding="utf-8") as f:
+        data = json.load(f)
 
-    # Read all entries
-    entries = []
-    with open(input_path, "r") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                entries.append(json.loads(line))
-
-    print(f"Loaded {len(entries)} entries from {input_path}")
-
-    # Cache unique GT HTML normalizations
-    gt_cache = {}
-    for entry in entries:
-        gt_html_raw = entry.get("gt_table_html", "")
-        if gt_html_raw and gt_html_raw not in gt_cache:
-            gt_cache[gt_html_raw] = normalized_html_table(gt_html_raw)
-    print(f"Normalized {len(gt_cache)} unique GT HTML tables")
+    total = sum(len(gt["extractions"]) for gt in data)
+    print(f"Loaded {len(data)} GT tables, {total} extractions from {DATA_PATH}")
 
     # Initialize TEDS scorers
     teds = TEDS(structure_only=False)
     teds_struct = TEDS(structure_only=True)
 
-    # Compute scores for each entry
-    skipped = 0
-    for i, entry in enumerate(entries, 1):
-        gt_html_raw = entry.get("gt_table_html", "")
-        if not gt_html_raw:
-            entry["teds"] = 0.0
-            entry["teds_structure_only"] = 0.0
-            entry["grits_top"] = 0.0
-            entry["grits_con"] = 0.0
-            entry.update(ZERO_SCORES)
-            skipped += 1
-            print(f"  [{i}/{len(entries)}] {entry['id']}: SKIPPED (no gt_table_html)")
-            continue
+    i = 0
+    for gt in data:
+        gt_html = normalize_table(gt["gt_table_html"])
 
-        gt_html = gt_cache[gt_html_raw]
-        extracted = entry["extracted_table"]
-        stripped = extracted.strip()
-        if stripped.startswith("<table"):
-            pred_html = normalized_html_table(extracted)
-        elif "\\begin{tabular}" in stripped or "\\begin{table}" in stripped:
-            pred_html = normalized_latex_table(extracted)
-        else:
-            pred_html = normalized_markdown_table(extracted)
+        for ext in gt["extractions"]:
+            i += 1
+            ext_id = f"{ext['parser']}_{gt['gt_id']}"
 
-        entry["teds"] = teds.evaluate(pred_html, gt_html)
-        entry["teds_structure_only"] = teds_struct.evaluate(pred_html, gt_html)
+            extracted = ext["extracted_table"]
+            pred_html = normalize_table(extracted)
 
-        grits = grits_from_html(gt_html, pred_html)
-        entry["grits_top"] = grits["grits_top"]
-        entry["grits_con"] = grits["grits_con"]
+            teds_val = teds.evaluate(pred_html, gt_html)
+            teds_struct_val = teds_struct.evaluate(pred_html, gt_html)
 
-        score = score_from_html(gt_html, pred_html)
-        entry.update(score)
+            grits = grits_from_html(gt_html, pred_html)
+            score = score_from_html(gt_html, pred_html)
 
-        print(f"  [{i}/{len(entries)}] {entry['id']}: teds={entry['teds']:.4f}, teds_struct={entry['teds_structure_only']:.4f}, grits_top={entry['grits_top']:.4f}, grits_con={entry['grits_con']:.4f}, score_content={entry['score_cell_content_acc']:.4f}, score_index={entry['score_cell_index_acc']:.4f}")
+            ext["metrics"] = {
+                "teds": teds_val,
+                "teds_structure": teds_struct_val,
+                "grits_top": grits["grits_top"],
+                "grits_con": grits["grits_con"],
+                "score_content": score["score_content"],
+                "score_content_shifted": score["score_content_shifted"],
+                "score_index": score["score_index"],
+            }
+
+            m = ext["metrics"]
+            print(f"  [{i}/{total}] {ext_id}: teds={m['teds']:.4f}, "
+                  f"teds_struct={m['teds_structure']:.4f}, "
+                  f"grits_top={m['grits_top']:.4f}, grits_con={m['grits_con']:.4f}, "
+                  f"score_content={m['score_content']:.4f}, score_index={m['score_index']:.4f}")
 
     # Write back
-    with open(input_path, "w") as f:
-        for entry in entries:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    with open(DATA_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
-    if skipped:
-        print(f"\nSkipped {skipped} entries without gt_table_html")
-    print(f"Done. Wrote {len(entries)} entries back to {input_path}")
+    print(f"Done. Wrote {len(data)} GT tables back to {DATA_PATH}")
 
     # Summary stats
+    all_metrics = [ext["metrics"] for gt in data for ext in gt["extractions"]]
+
     def print_stat(label, key):
-        vals = [e[key] for e in entries]
-        print(f"{label:24s} mean={sum(vals)/len(vals):.4f}, min={min(vals):.4f}, max={max(vals):.4f}")
+        vals = [m[key] for m in all_metrics]
+        print(f"{label:24s} mean={sum(vals)/len(vals):.4f}")
 
     print_stat("TEDS:", "teds")
-    print_stat("TEDS-structure:", "teds_structure_only")
+    print_stat("TEDS-structure:", "teds_structure")
     print_stat("GriTS-Top:", "grits_top")
     print_stat("GriTS-Con:", "grits_con")
-    print_stat("SCORE content_acc:", "score_cell_content_acc")
-    print_stat("SCORE shifted_acc:", "score_shifted_content_acc")
-    print_stat("SCORE index_acc:", "score_cell_index_acc")
-    print_stat("SCORE TEDS:", "score_teds")
-    print_stat("SCORE TEDS corrected:", "score_teds_corrected")
+    print_stat("SCORE content:", "score_content")
+    print_stat("SCORE content shifted:", "score_content_shifted")
+    print_stat("SCORE index:", "score_index")
 
 
 if __name__ == "__main__":

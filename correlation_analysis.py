@@ -1,13 +1,3 @@
-# /// script
-# requires-python = ">=3.12"
-# dependencies = [
-#     "krippendorff",
-#     "matplotlib",
-#     "numpy",
-#     "scipy",
-#     "seaborn",
-# ]
-# ///
 """Analyse the correlation between automated metrics and human scores."""
 
 import json
@@ -30,68 +20,55 @@ plt.rcParams['axes.labelsize'] = 11
 plt.rcParams['axes.titlesize'] = 12
 plt.rcParams['legend.fontsize'] = 10
 
-JSONL_PATH = Path(__file__).parent / "all_tables.jsonl"
+DATA_PATH = Path(__file__).parent / "all_tables.json"
 OUTPUT_DIR = Path(__file__).parent / "correlation_plots"
 
 
 def load_data(path: Path) -> list[dict]:
-    rows = []
-    with open(path) as f:
-        for line in f:
-            obj = json.loads(line)
-            if "human_scores" in obj and obj.get("extracted_table", "").strip():
-                rows.append(obj)
-    return rows
+    """Load all_tables.json and flatten to extraction-level rows."""
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    return [
+        ext
+        for gt in data
+        for ext in gt["extractions"]
+        if "human_scores" in ext and ext["extracted_table"].strip()
+    ]
 
 
 def extract_metric_vectors(rows: list[dict]) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     """Return {metric_name: (metric_values, human_values)} for all metrics."""
-    teds_vals, teds_struct_vals, human_vals = [], [], []
-    grits_top_vals, grits_con_vals = [], []
-    score_content_vals, score_shifted_vals, score_index_vals = [], [], []
-    score_teds_vals, score_teds_corr_vals = [], []
-    llm_scores: dict[str, tuple[list, list]] = defaultdict(lambda: ([], []))
+    human_arr = np.array([np.mean(r["human_scores"]) for r in rows])
 
-    for row in rows:
-        h = np.mean(row["human_scores"])
-        human_vals.append(h)
-        teds_vals.append(row["teds"])
-        teds_struct_vals.append(row["teds_structure_only"])
-        grits_top_vals.append(row.get("grits_top", 0.0))
-        grits_con_vals.append(row.get("grits_con", 0.0))
-        score_content_vals.append(row.get("score_cell_content_acc", 0.0))
-        score_shifted_vals.append(row.get("score_shifted_content_acc", 0.0))
-        score_index_vals.append(row.get("score_cell_index_acc", 0.0))
-        score_teds_vals.append(row.get("score_teds", 0.0))
-        score_teds_corr_vals.append(row.get("score_teds_corrected", 0.0))
+    def metric(key):
+        """Extract a single metric and scale from 0-1 to 0-10."""
+        return np.array([r["metrics"][key] for r in rows]) * 10
 
-        for entry in row.get("llm_scores", []):
-            model = entry["judge_model"]
-            llm_scores[model][0].append(entry["score"])
-            llm_scores[model][1].append(h)
-
-    def scale(vals):
-        """Scale 0-1 metrics to 0-10."""
-        return np.array(vals) * 10
-
-    human_arr = np.array(human_vals)
+    grits_top = metric("grits_top")
+    grits_con = metric("grits_con")
+    score_content = metric("score_content")
+    score_index = metric("score_index")
 
     result: dict[str, tuple[np.ndarray, np.ndarray]] = {
-        "TEDS": (scale(teds_vals), human_arr),
-        "TEDS struct.": (scale(teds_struct_vals), human_arr),
-        "GriTS-Top": (scale(grits_top_vals), human_arr),
-        "GriTS-Con": (scale(grits_con_vals), human_arr),
-        "GriTS-Avg": (scale((np.array(grits_top_vals) + np.array(grits_con_vals)) / 2), human_arr),
-        "SCORE Index": (scale(score_index_vals), human_arr),
-        "SCORE Content": (scale(score_content_vals), human_arr),
-        "SCORE Content Shifted": (scale(score_shifted_vals), human_arr),
-        "SCORE-Avg": (scale((np.array(score_content_vals) + np.array(score_index_vals)) / 2), human_arr),
-        "SCORE TEDS": (scale(score_teds_vals), human_arr),
-        "SCORE TEDS corrected": (scale(score_teds_corr_vals), human_arr),
+        "TEDS": (metric("teds"), human_arr),
+        "TEDS struct.": (metric("teds_structure"), human_arr),
+        "GriTS-Top": (grits_top, human_arr),
+        "GriTS-Con": (grits_con, human_arr),
+        "GriTS-Avg": ((grits_top + grits_con) / 2, human_arr),
+        "SCORE Index": (score_index, human_arr),
+        "SCORE Content": (score_content, human_arr),
+        "SCORE Content Shifted": (metric("score_content_shifted"), human_arr),
+        "SCORE-Avg": ((score_content + score_index) / 2, human_arr),
     }
-    for model, (scores, humans) in sorted(llm_scores.items()):
+
+    llm_scores: dict[str, list[float]] = defaultdict(list)
+    for row in rows:
+        for entry in row["llm_scores"]:
+            llm_scores[entry["judge_model"]].append(entry["score"])
+
+    for model, scores in sorted(llm_scores.items()):
         label = model.split("/")[-1] if "/" in model else model
-        result[f"LLM: {label}"] = (np.array(scores), np.array(humans))
+        result[f"LLM: {label}"] = (np.array(scores), human_arr)
 
     return result
 
@@ -109,9 +86,8 @@ def compute_correlations(
     }
 
 
-def plot_scatter(ax, title, metric_vals, human_vals, color, metrics_text,
-                 small=False):
-    """Plot a complete bubble scatter subplot, matching cdm_vs_llm_plotter style."""
+def plot_scatter(ax, title, metric_vals, human_vals, color, metrics_text):
+    """Plot a bubble scatter subplot."""
     plot_metrics = np.round(metric_vals).astype(int).clip(0, 10)
     plot_humans = np.round(human_vals).astype(int).clip(0, 10)
     counts = Counter(zip(plot_humans.tolist(), plot_metrics.tolist()))
@@ -133,10 +109,8 @@ def plot_scatter(ax, title, metric_vals, human_vals, color, metrics_text,
     ax.set_title(f'{title} vs Human Scores')
     ax.grid(True, alpha=0.3)
 
-    # Position legend inside plot at bottom center with better visibility
-    fs = 8 if small else 10
     legend = ax.legend(loc='lower center', frameon=True, fancybox=True,
-                       shadow=True, fontsize=fs)
+                       shadow=True, fontsize=8)
     legend.get_frame().set_facecolor('white')
     legend.get_frame().set_alpha(0.9)
     legend.get_frame().set_edgecolor('black')
@@ -148,16 +122,40 @@ def plot_scatter(ax, title, metric_vals, human_vals, color, metrics_text,
     ax.set_yticks(range(0, 11))
     ax.set_aspect('equal')
 
-    # Add metrics text in bottom right corner with better visibility
     ax.text(0.915, 0.05, metrics_text, transform=ax.transAxes,
-            fontsize=fs, verticalalignment='bottom', horizontalalignment='right',
+            fontsize=8, verticalalignment='bottom', horizontalalignment='right',
             bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.9,
                       edgecolor='black', linewidth=1))
 
 
+def make_figure(metrics_data, all_correlations, specs, output_path):
+    """Create a 2-column scatter figure.
+
+    specs: list of (metric_key, display_label, color)
+    """
+    n = len(specs)
+    nrows = (n + 1) // 2
+    fig, axes = plt.subplots(nrows, 2, figsize=(10, 5 * nrows),
+                             constrained_layout=True)
+    axes_flat = axes.flatten()
+
+    for i, (key, label, color) in enumerate(specs):
+        m_vals, h_vals = metrics_data[key]
+        corrs = all_correlations[key]
+        metrics_text = (f'Corr: {corrs["Pearson r"][0]:.3f}\n'
+                        f'Spearman: {corrs["Spearman ρ"][0]:.3f}\n'
+                        f'Kendall: {corrs["Kendall τ"][0]:.3f}')
+        plot_scatter(axes_flat[i], label, m_vals, h_vals, color, metrics_text)
+
+    for j in range(n, len(axes_flat)):
+        axes_flat[j].set_visible(False)
+
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    print(f"Saved {output_path}")
+
+
 def main():
-    np.random.seed(42)
-    rows = load_data(JSONL_PATH)
+    rows = load_data(DATA_PATH)
     print(f"Loaded {len(rows)} rows with human_scores")
 
     # Inter-annotator agreement (rows with >= 2 human scores)
@@ -203,7 +201,7 @@ def main():
         print(f"\n  Human ceiling — r(annotator, mean of others):")
         loo_pearsons, loo_spearmans, loo_kendalls = [], [], []
         for i in range(max_ann):
-            rows_for_i = [s for s in multi if len(s) > i and len(s) >= 2]
+            rows_for_i = [s for s in multi if len(s) > i]
             if len(rows_for_i) < 3:
                 continue
             hi = np.array([s[i] for s in rows_for_i])
@@ -238,80 +236,26 @@ def main():
         )
 
     # Plot
-    n_metrics = len(metrics)
-    cols = 3
-    rows_grid = (n_metrics + cols - 1) // cols
-    fig, axes = plt.subplots(rows_grid, cols, figsize=(5 * cols, 4 * rows_grid))
-    axes = axes.flatten()
-
-    palette = sns.color_palette("tab10")
-    for i, (name, (m_vals, h_vals)) in enumerate(metrics.items()):
-        corrs = all_correlations[name]
-        metrics_text = (f'Pearson r: {corrs["Pearson r"][0]:.3f}\n'
-                        f'Spearman \u03c1: {corrs["Spearman ρ"][0]:.3f}\n'
-                        f'Kendall \u03c4: {corrs["Kendall τ"][0]:.3f}')
-        plot_scatter(axes[i], name, m_vals, h_vals,
-                     palette[i % len(palette)], metrics_text)
-
-    # Hide unused axes
-    for j in range(i + 1, len(axes)):
-        axes[j].set_visible(False)
-
-    fig.suptitle("Metric vs Human Score Correlation", fontsize=14, y=1.01)
-    fig.tight_layout()
-
     OUTPUT_DIR.mkdir(exist_ok=True)
-    out_path = OUTPUT_DIR / "correlation_all.png"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    print(f"\nPlot saved to {out_path}")
+    palette = sns.color_palette("tab10")
 
-    # --- 3x2 paper figure (3 rows, 2 cols) with selected metrics ---
-    paper_metrics = [
-        "TEDS",                        "LLM: deepseek-v3.2",
-        "GriTS-Avg",                   "LLM: gemini-3-flash-preview",
-        "SCORE-Avg",                   "LLM: claude-opus-4.6",
+    # All metrics
+    all_specs = [(name, name, palette[i % len(palette)])
+                 for i, name in enumerate(metrics)]
+    make_figure(metrics, all_correlations, all_specs,
+                OUTPUT_DIR / "correlation_all.png")
+
+    # Paper figure (selected metrics)
+    paper_specs = [
+        ("TEDS", "TEDS (Rule-based)", palette[0]),
+        ("LLM: deepseek-v3.2", "DeepSeek-v3.2 (LLM-as-a-Judge)", palette[1]),
+        ("GriTS-Avg", "GriTS-Avg (Rule-based)", palette[2]),
+        ("LLM: gemini-3-flash-preview", "Gemini-3-Flash (LLM-as-a-Judge)", palette[3]),
+        ("SCORE-Avg", "SCORE-Avg (Rule-based)", palette[4]),
+        ("LLM: claude-opus-4.6", "Claude Opus 4.6 (LLM-as-a-Judge)", palette[6]),
     ]
-    paper_labels = [
-        "TEDS",                        "DeepSeek-v3.2",
-        "GriTS-Avg",                   "Gemini-3-Flash",
-        "SCORE-Avg",                   "Claude Opus 4.6",
-    ]
-    paper_row_labels = [
-        "Rule-based",  "LLM-as-a-Judge",
-        "Rule-based",  "LLM-as-a-Judge",
-        "Rule-based",  "LLM-as-a-Judge",
-    ]
-    paper_colors = [
-        sns.color_palette("tab10")[0],  # blue
-        sns.color_palette("tab10")[1],  # orange
-        sns.color_palette("tab10")[2],  # green
-        sns.color_palette("tab10")[3],  # red
-        sns.color_palette("tab10")[4],  # purple
-        sns.color_palette("tab10")[6],  # pink
-    ]
-
-    fig3, axes3 = plt.subplots(3, 2, figsize=(10, 5 * 3),
-                               constrained_layout=True)
-    axes3_flat = axes3.flatten()
-
-    for idx, (metric_key, label, row_label, color) in enumerate(
-        zip(paper_metrics, paper_labels, paper_row_labels, paper_colors)
-    ):
-        ax = axes3_flat[idx]
-        m_vals, h_vals = metrics[metric_key]
-        corrs = all_correlations[metric_key]
-
-        metrics_text = (f'Corr: {corrs["Pearson r"][0]:.3f}\n'
-                        f'Spearman: {corrs["Spearman ρ"][0]:.3f}\n'
-                        f'Kendall: {corrs["Kendall τ"][0]:.3f}')
-        plot_scatter(ax, f'{label} ({row_label})', m_vals, h_vals,
-                     color, metrics_text, small=True)
-
-    out_path3 = OUTPUT_DIR / "correlation.pdf"
-    fig3.savefig(out_path3, dpi=300, bbox_inches="tight")
-    out_path3_png = OUTPUT_DIR / "correlation.png"
-    fig3.savefig(out_path3_png, dpi=300, bbox_inches="tight")
-    print(f"Paper figure saved to {out_path3} and {out_path3_png}")
+    make_figure(metrics, all_correlations, paper_specs,
+                OUTPUT_DIR / "correlation.png")
 
 
 if __name__ == "__main__":

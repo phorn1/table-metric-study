@@ -7,11 +7,9 @@ https://github.com/Unstructured-IO/unstructured-eval-metrics
 from scoring.table_scoring import score_tables
 
 ZERO_SCORES = {
-    "score_cell_content_acc": 0.0,
-    "score_shifted_content_acc": 0.0,
-    "score_cell_index_acc": 0.0,
-    "score_teds": 0.0,
-    "score_teds_corrected": 0.0,
+    "score_content": 0.0,
+    "score_content_shifted": 0.0,
+    "score_index": 0.0,
 }
 
 
@@ -35,9 +33,7 @@ def score_from_html(gt_html: str, pred_html: str) -> dict:
 
     s = result.scores
     return {
-        "score_cell_content_acc": s.cell_level_content_acc,
-        "score_shifted_content_acc": s.shifted_cell_content_acc,
-        "score_cell_index_acc": s.cell_level_index_acc,
-        "score_teds": s.table_teds,
-        "score_teds_corrected": s.table_teds_corrected,
+        "score_content": s.cell_level_content_acc,
+        "score_content_shifted": s.shifted_cell_content_acc,
+        "score_index": s.cell_level_index_acc,
     }

@@ -10,12 +10,13 @@ import json
 import re
 import subprocess
 import tempfile
-from collections import OrderedDict
 from html import escape as html_escape
 from pathlib import Path
 
 import gradio as gr
 import markdown as md_lib
+
+DATA_PATH = Path(__file__).parent / "all_tables.json"
 
 LATEX_PREAMBLE = r"""\documentclass[varwidth=\maxdimen]{standalone}
 \usepackage[utf8]{inputenc}
@@ -37,17 +38,23 @@ def render_latex_to_img(latex: str, temp_dir: Path) -> str:
     doc = f"{LATEX_PREAMBLE}\\begin{{document}}\n\n{latex}\n\n\\end{{document}}\n"
     tex_path.write_text(doc, encoding="utf-8")
 
-    result = subprocess.run(
-        ["pdflatex", "-interaction=nonstopmode", tex_path.name],
-        capture_output=True, cwd=temp_dir, timeout=30,
-    )
+    try:
+        result = subprocess.run(
+            ["pdflatex", "-interaction=nonstopmode", tex_path.name],
+            capture_output=True, cwd=temp_dir, timeout=30,
+        )
+    except FileNotFoundError:
+        return "<p style='color:red'>pdflatex not found. Install TeX Live or MiKTeX.</p>"
     if result.returncode != 0 or not pdf_path.exists():
         return "<p style='color:red'>LaTeX compilation failed</p>"
 
-    subprocess.run(
-        ["pdftoppm", "-png", "-r", "150", "-singlefile", str(pdf_path), str(png_path.with_suffix(""))],
-        capture_output=True, timeout=10,
-    )
+    try:
+        subprocess.run(
+            ["pdftoppm", "-png", "-r", "150", "-singlefile", str(pdf_path), str(png_path.with_suffix(""))],
+            capture_output=True, timeout=10,
+        )
+    except FileNotFoundError:
+        return "<p style='color:red'>pdftoppm not found. Install poppler-utils (or poppler for Windows).</p>"
     if not png_path.exists():
         return "<p style='color:red'>PNG conversion failed</p>"
 
@@ -89,90 +96,75 @@ def render_extracted(text: str, raw: bool) -> str:
         f'</div>'
     )
 
-JSONL_PATH = "all_tables.jsonl"
+
+def ext_id(gt, ext):
+    """Build a unique extraction ID from GT and extraction."""
+    return f"{ext['parser']}_{gt['gt_id']}"
 
 
-def load_grouped():
-    """Load entries grouped by unique gt_table, preserving order."""
-    entries = []
-    with open(JSONL_PATH) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                entries.append(json.loads(line))
-    groups = OrderedDict()
-    for e in entries:
-        key = e["gt_table"]
-        if key not in groups:
-            groups[key] = []
-        groups[key].append(e)
-    return list(groups.values())
+def load_data():
+    """Load all_tables.json."""
+    with open(DATA_PATH, encoding="utf-8") as f:
+        return json.load(f)
 
 
 def save_and_reload(pending_scores, saved_eids):
-    """Load fresh JSONL, apply pending scores, write back, return fresh groups.
+    """Load fresh JSON, apply pending scores, write back, return fresh data.
 
     This avoids data loss from stale in-memory state by always reading
     the latest data from disk before writing.
     """
-    entries = []
-    with open(JSONL_PATH) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                entries.append(json.loads(line))
+    data = load_data()
 
-    id_to_entry = {e["id"]: e for e in entries}
+    # Build lookup: ext_id -> extraction dict
+    id_to_ext = {}
+    for gt in data:
+        for ext in gt["extractions"]:
+            id_to_ext[ext_id(gt, ext)] = ext
+
     for eid, score in pending_scores.items():
-        if eid not in id_to_entry:
+        if eid not in id_to_ext:
             continue
-        entry = id_to_entry[eid]
-        if "human_scores" not in entry:
-            entry["human_scores"] = []
-        if eid in saved_eids and entry["human_scores"]:
-            entry["human_scores"][-1] = score
+        ext = id_to_ext[eid]
+        if "human_scores" not in ext:
+            ext["human_scores"] = []
+        if eid in saved_eids and ext["human_scores"]:
+            ext["human_scores"][-1] = score
         else:
-            entry["human_scores"].append(score)
+            ext["human_scores"].append(score)
 
-    with open(JSONL_PATH, "w") as f:
-        for entry in entries:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    with open(DATA_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
-    groups = OrderedDict()
-    for e in entries:
-        key = e["gt_table"]
-        if key not in groups:
-            groups[key] = []
-        groups[key].append(e)
-    return list(groups.values())
+    return data
 
 
-def get_opus_errors(entry):
-    """Extract claude-opus error list from an entry."""
+def get_opus_errors(ext):
+    """Extract claude-opus error list from an extraction."""
     return next(
         (
             s["errors"]
-            for s in entry.get("llm_scores", [])
+            for s in ext["llm_scores"]
             if "claude-opus" in s.get("judge_model", "")
         ),
         [],
     )
 
 
-def render_gt_html(group):
+def render_gt_html(gt):
     """Render GT table to HTML image."""
-    gt_latex = group[0]["gt_table"]
     with tempfile.TemporaryDirectory() as tmp:
-        return render_latex_to_img(gt_latex, Path(tmp))
+        return render_latex_to_img(gt["gt_table"], Path(tmp))
 
 
-def render_extraction_card(entry, raw=False):
+def render_extraction_card(ext, raw=False):
     """Render a single extraction card (table + errors, no scores)."""
-    table_html = render_extracted(entry["extracted_table"], raw=raw)
+    table_html = render_extracted(ext["extracted_table"], raw=raw)
 
     # TEDS scores
-    teds = entry.get("teds")
-    teds_s = entry.get("teds_structure_only")
+    metrics = ext.get("metrics", {})
+    teds = metrics.get("teds")
+    teds_s = metrics.get("teds_structure")
     teds_parts = []
     if teds is not None:
         teds_parts.append(f"<b>TEDS:</b> {teds:.4f}")
@@ -187,7 +179,7 @@ def render_extraction_card(entry, raw=False):
         )
 
     # Claude-Opus errors
-    errors = get_opus_errors(entry)
+    errors = get_opus_errors(ext)
     errors_html = ""
     if errors:
         items = "".join(f"<li>{e}</li>" for e in errors)
@@ -207,21 +199,21 @@ def render_extraction_card(entry, raw=False):
     )
 
 
-def build_extraction_choices(group, pending_scores, saved_gt_indices, gt_idx):
+def build_extraction_choices(gt, pending_scores):
     """Build radio choices: checkmark for session-scored, count of existing scores."""
     choices = []
-    for entry in group:
-        eid = entry["id"]
-        n_scores = len(entry.get("human_scores", []))
+    for ext in gt["extractions"]:
+        eid = ext_id(gt, ext)
+        n_scores = len(ext.get("human_scores", []))
         count_str = f" ({n_scores})" if n_scores > 0 else ""
         mark = " \u2713" if eid in pending_scores else ""
         choices.append(f"{eid}{count_str}{mark}")
     return choices
 
 
-def get_current_score(entry, pending_scores):
-    """Get score for an entry: from pending_scores (session) only, else default."""
-    eid = entry["id"]
+def get_current_score(gt, ext, pending_scores):
+    """Get score for an extraction: from pending_scores (session) only, else default."""
+    eid = ext_id(gt, ext)
     if eid in pending_scores:
         return pending_scores[eid]
     return 5  # default – don't reveal previous scores
@@ -231,7 +223,7 @@ def get_current_score(entry, pending_scores):
 
 
 def create_ui():
-    groups = load_grouped()
+    data = load_data()
 
     with gr.Blocks(title="Human Evaluation - Table Extraction") as app:
         gr.Markdown("# Human Evaluation - Table Extraction Study")
@@ -239,9 +231,9 @@ def create_ui():
         # State
         gt_idx = gr.State(0)
         ext_idx = gr.State(0)
-        pending_scores = gr.State({})  # {entry_id: int}
-        saved_gt_indices = gr.State(set())  # set of entry IDs already saved in this session
-        groups_state = gr.State(groups)
+        pending_scores = gr.State({})  # {ext_id: int}
+        saved_gt_indices = gr.State(set())  # set of ext IDs already saved in this session
+        data_state = gr.State(data)
 
         # Header
         progress = gr.Markdown()
@@ -280,20 +272,22 @@ def create_ui():
 
         def _render_page(g_idx, e_idx, p_scores, s_indices, grps, raw=False):
             """Return all UI outputs for a given GT index and extraction index."""
-            group = grps[g_idx]
-            n_ext = len(group)
+            gt = grps[g_idx]
+            exts = gt["extractions"]
+            n_ext = len(exts)
             e_idx = max(0, min(e_idx, n_ext - 1))
 
             progress_text = f"**GT Table {g_idx + 1}/{len(grps)}** &nbsp;—&nbsp; Extraction {e_idx + 1}/{n_ext}"
-            gt_rendered = render_gt_html(group)
+            gt_rendered = render_gt_html(gt)
 
-            choices = build_extraction_choices(group, p_scores, s_indices, g_idx)
+            choices = build_extraction_choices(gt, p_scores)
             current_choice = choices[e_idx] if choices else None
 
-            entry = group[e_idx]
-            ext_header_text = f"**{entry['id']}**"
-            card_html = render_extraction_card(entry, raw=raw)
-            score_val = get_current_score(entry, p_scores)
+            ext = exts[e_idx]
+            eid = ext_id(gt, ext)
+            ext_header_text = f"**{eid}**"
+            card_html = render_extraction_card(ext, raw=raw)
+            score_val = get_current_score(gt, ext, p_scores)
 
             return (
                 g_idx,
@@ -318,25 +312,25 @@ def create_ui():
 
         def on_score_change(score, g_idx, e_idx, p_scores, grps):
             """Store score in pending_scores when slider changes."""
-            group = grps[g_idx]
-            entry = group[e_idx]
-            p_scores[entry["id"]] = int(score)
+            gt = grps[g_idx]
+            ext = gt["extractions"][e_idx]
+            p_scores[ext_id(gt, ext)] = int(score)
             return p_scores
 
         def on_ext_radio(choice, g_idx, e_idx, p_scores, s_indices, grps, raw):
             """Switch to selected extraction via radio."""
             if choice is None:
                 return g_idx, e_idx, "", "", "", 5, p_scores
-            group = grps[g_idx]
+            gt = grps[g_idx]
             # Strip checkmark and score count to find ID
             clean = choice.replace(" \u2713", "")
             clean = re.sub(r' \(\d+\)$', '', clean)
             new_idx = next(
-                (i for i, entry in enumerate(group) if entry["id"] == clean),
+                (i for i, ext in enumerate(gt["extractions"])
+                 if ext_id(gt, ext) == clean),
                 e_idx,
             )
             out = _render_page(g_idx, new_idx, p_scores, s_indices, grps, raw)
-            # out: g_idx, e_idx, progress, gt_html, radio_update, ext_header, card, score
             return (
                 out[1],  # e_idx
                 out[2],  # progress
@@ -348,17 +342,17 @@ def create_ui():
             )
 
         def on_prev_ext(g_idx, e_idx, p_scores, s_indices, grps, raw):
-            group = grps[g_idx]
-            new_idx = (e_idx - 1) % len(group)
+            n_ext = len(grps[g_idx]["extractions"])
+            new_idx = (e_idx - 1) % n_ext
             return _render_page(g_idx, new_idx, p_scores, s_indices, grps, raw)
 
         def on_next_ext(g_idx, e_idx, p_scores, s_indices, grps, raw):
-            group = grps[g_idx]
-            new_idx = (e_idx + 1) % len(group)
+            n_ext = len(grps[g_idx]["extractions"])
+            new_idx = (e_idx + 1) % n_ext
             return _render_page(g_idx, new_idx, p_scores, s_indices, grps, raw)
 
         def on_save_and_next(g_idx, e_idx, p_scores, s_indices, grps, raw):
-            """Save pending scores to JSONL, then advance to next GT."""
+            """Save pending scores to JSON, then advance to next GT."""
             grps = save_and_reload(p_scores, s_indices)
             s_indices.update(p_scores.keys())
 
@@ -407,16 +401,16 @@ def create_ui():
         ]
 
         full_gt_nav_outputs = [
-            gt_idx, ext_idx, pending_scores, saved_gt_indices, groups_state,
+            gt_idx, ext_idx, pending_scores, saved_gt_indices, data_state,
             progress, gt_html, ext_radio, ext_header, ext_card, score_slider,
         ]
 
-        state_inputs = [gt_idx, ext_idx, pending_scores, saved_gt_indices, groups_state, raw_toggle]
+        state_inputs = [gt_idx, ext_idx, pending_scores, saved_gt_indices, data_state, raw_toggle]
 
         # Score change -> update pending
         score_slider.release(
             on_score_change,
-            inputs=[score_slider, gt_idx, ext_idx, pending_scores, groups_state],
+            inputs=[score_slider, gt_idx, ext_idx, pending_scores, data_state],
             outputs=[pending_scores],
         )
 
@@ -430,7 +424,7 @@ def create_ui():
         # Extraction radio
         ext_radio.input(
             on_ext_radio,
-            inputs=[ext_radio, gt_idx, ext_idx, pending_scores, saved_gt_indices, groups_state, raw_toggle],
+            inputs=[ext_radio, gt_idx, ext_idx, pending_scores, saved_gt_indices, data_state, raw_toggle],
             outputs=[ext_idx, progress, ext_radio, ext_header, ext_card, score_slider, pending_scores],
         )
 

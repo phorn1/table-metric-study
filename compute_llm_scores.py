@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Compute LLM-as-a-judge scores for all table pairs in all_tables.jsonl."""
+"""Compute LLM-as-a-judge scores for all table pairs in all_tables.json."""
 
 import json
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from functools import wraps
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -14,7 +13,7 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-JSONL_PATH = Path(__file__).parent / "all_tables.jsonl"
+DATA_PATH = Path(__file__).parent / "all_tables.json"
 
 MODEL = "openai/gpt-5-mini"
 MAX_WORKERS = 8
@@ -44,105 +43,81 @@ class TableEvaluation(BaseModel):
     score: int
 
 
-def get_client() -> OpenAI:
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        raise ValueError("OPENROUTER_API_KEY environment variable is required.")
-    return OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
-
-
-def retry(max_retries: int = MAX_RETRIES):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            last_error = None
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_error = e
-                    if attempt < max_retries - 1:
-                        print(f"  Attempt {attempt + 1} failed: {e}. Retrying...")
-            raise last_error
-        return wrapper
-    return decorator
-
-
-@retry()
 def evaluate_table(client: OpenAI, gt_table: str, extracted_table: str) -> TableEvaluation:
     prompt = TABLE_EVALUATION_PROMPT.format(gt_table=gt_table, extracted_table=extracted_table)
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "TableEvaluation",
-                "strict": True,
-                "schema": TableEvaluation.model_json_schema(),
-            },
-        },
-    )
-    return TableEvaluation.model_validate_json(response.choices[0].message.content)
-
-
-def load_entries() -> list[dict]:
-    entries = []
-    with open(JSONL_PATH) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                entries.append(json.loads(line))
-    return entries
-
-
-def save_entries(entries: list[dict]) -> None:
-    with open(JSONL_PATH, "w") as f:
-        for entry in entries:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "TableEvaluation",
+                        "strict": True,
+                        "schema": TableEvaluation.model_json_schema(),
+                    },
+                },
+            )
+            return TableEvaluation.model_validate_json(response.choices[0].message.content)
+        except Exception as e:
+            if attempt < MAX_RETRIES - 1:
+                print(f"  Attempt {attempt + 1} failed: {e}. Retrying...")
+            else:
+                raise
 
 
 def main():
-    entries = load_entries()
-    print(f"Loaded {len(entries)} entries from {JSONL_PATH}")
+    with open(DATA_PATH, encoding="utf-8") as f:
+        data = json.load(f)
 
-    # Find entries that still need scoring for this model
-    todo = [
-        (i, entry)
-        for i, entry in enumerate(entries)
-        if not any(s["judge_model"] == MODEL for s in entry.get("llm_scores", []))
-    ]
-    print(f"{len(todo)} entries need evaluation with {MODEL}")
+    total = sum(len(gt["extractions"]) for gt in data)
+    print(f"Loaded {len(data)} GT tables, {total} extractions from {DATA_PATH}")
+
+    # Find extractions that still need scoring for this model
+    todo = []
+    for gt in data:
+        for ext in gt["extractions"]:
+            if MODEL not in {s["judge_model"] for s in ext["llm_scores"]}:
+                todo.append((gt, ext))
+
+    print(f"{len(todo)} extractions need evaluation with {MODEL}")
     if not todo:
         return
 
-    client = get_client()
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise ValueError("OPENROUTER_API_KEY environment variable is required.")
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+
     lock = threading.Lock()
     done = 0
 
-    def process(idx: int, entry: dict) -> None:
+    def process(gt: dict, ext: dict) -> None:
         nonlocal done
-        result = evaluate_table(client, entry["gt_table"], entry["extracted_table"])
+        result = evaluate_table(client, gt["gt_table"], ext["extracted_table"])
         score_entry = {
             "judge_model": MODEL,
             "score": max(0, min(10, result.score)),
             "errors": result.errors,
         }
+        ext_id = f"{ext['parser']}_{gt['gt_id']}"
         with lock:
-            entries[idx].setdefault("llm_scores", []).append(score_entry)
-            save_entries(entries)
+            ext["llm_scores"].append(score_entry)
+            with open(DATA_PATH, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
             done += 1
-            print(f"  [{done}/{len(todo)}] {entry['id']}: score={score_entry['score']}")
+            print(f"  [{done}/{len(todo)}] {ext_id}: score={score_entry['score']}")
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {executor.submit(process, idx, entry): idx for idx, entry in todo}
+        futures = {executor.submit(process, gt, ext): (gt, ext) for gt, ext in todo}
         for future in as_completed(futures):
             exc = future.exception()
             if exc:
-                idx = futures[future]
-                print(f"  FAILED {entries[idx]['id']}: {exc}")
+                gt, ext = futures[future]
+                print(f"  FAILED {ext['parser']}_{gt['gt_id']}: {exc}")
 
-    print(f"Done. {done}/{len(todo)} entries scored.")
+    print(f"Done. {done}/{len(todo)} extractions scored.")
 
 
 if __name__ == "__main__":

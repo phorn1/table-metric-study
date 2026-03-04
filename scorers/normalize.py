@@ -1,10 +1,8 @@
 import html
-import os
 import re
-import shutil
 import subprocess
+import tempfile
 import unicodedata
-import uuid
 
 from bs4 import BeautifulSoup
 
@@ -34,26 +32,6 @@ def markdown_to_html(markdown_table):
     html_table += '  </tbody>\n</table>\n'
     return html_table
 
-
-def convert_table_str(s):
-    s = re.sub(r'<table.*?>', '<table>', s)
-    s = re.sub(r'<th', '<td', s)
-    s = re.sub(r'</th>', '</td>', s)
-    res = '\n\n'
-    temp_item = ''
-    for c in s:
-        temp_item += c
-        if c == '>' and not re.search(r'<td.*?>\$', temp_item):
-            res += temp_item + '\n'
-            temp_item = ''
-    return res + '\n'
-
-
-def merge_table(md):
-    table_temp = ''
-    for line in md:
-        table_temp += line
-    return convert_table_str(table_temp)
 
 
 def find_md_table_mode(line):
@@ -170,7 +148,6 @@ def normalized_html_table(text):
             return str(soup)
 
         table_res = ''
-        table_res_no_space = ''
         if '<table' in md_i.replace(" ", "").replace("'", '"'):
             md_i = _process_table_html(md_i)
             table_res = html.unescape(md_i).replace('\n', '')
@@ -186,14 +163,9 @@ def normalized_html_table(text):
             table_res = re.sub('</?tbody>', "", table_res)
 
             table_res = re.sub(r'\s+', " ", table_res)
-            table_res_no_space = '<html><body><table border="1" >' + table_res.replace(' ', '') + '</table></body></html>'
-            table_res_no_space = re.sub('colspan="', ' colspan="', table_res_no_space)
-            table_res_no_space = re.sub('rowspan="', ' rowspan="', table_res_no_space)
-            table_res_no_space = re.sub('border="', ' border="', table_res_no_space)
-
             table_res = '<html><body><table border="1" >' + table_res + '</table></body></html>'
 
-        return table_res, table_res_no_space
+        return table_res
 
     def clean_table(input_str, flag=True):
         if flag:
@@ -206,7 +178,7 @@ def normalized_html_table(text):
             input_str = re.sub('<colgroup>.*?</colgroup>', '', input_str)
         return input_str
 
-    norm_text, _ = process_table_html(text)
+    norm_text = process_table_html(text)
     norm_text = clean_table(norm_text)
     return norm_text
 
@@ -241,34 +213,34 @@ def normalized_latex_table(text):
         return template
 
     def convert_latex_to_html(latex_content):
-        # Use per-invocation unique subdirectory to avoid race conditions
-        cache_dir = os.path.join('./temp', str(uuid.uuid4()))
-        os.makedirs(cache_dir, exist_ok=True)
+        with tempfile.TemporaryDirectory() as cache_dir:
+            tex_path = f'{cache_dir}/table.tex'
+            log_path = f'{cache_dir}/table.log'
+            html_path = f'{cache_dir}/table.html'
 
-        uuid_str = str(uuid.uuid1())
-        tex_path = os.path.join(cache_dir, f'{uuid_str}.tex')
-        log_path = os.path.join(cache_dir, f'{uuid_str}.log')
-        html_path = os.path.join(cache_dir, f'{uuid_str}.html')
+            with open(tex_path, 'w', encoding='utf-8') as f:
+                f.write(latex_template(latex_content))
 
-        with open(tex_path, 'w') as f:
-            f.write(latex_template(latex_content))
+            cmd = ['latexmlc', '--quiet', '--nocomments',
+                   f'--log={log_path}', tex_path, f'--dest={html_path}']
+            try:
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                with open(html_path, 'r', encoding='utf-8') as f:
+                    html_content = f.read()
 
-        cmd = ['latexmlc', '--quiet', '--nocomments',
-               f'--log={log_path}', tex_path, f'--dest={html_path}']
-        try:
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            with open(html_path, 'r') as f:
-                html_content = f.read()
+                pattern = r'<table\b[^>]*>(.*)</table>'
+                tables = re.findall(pattern, html_content, re.DOTALL | re.IGNORECASE)
+                tables = [f'<table>{table}</table>' for table in tables]
+                html_content = '\n'.join(tables)
 
-            pattern = r'<table\b[^>]*>(.*)</table>'
-            tables = re.findall(pattern, html_content, re.DOTALL | re.IGNORECASE)
-            tables = [f'<table>{table}</table>' for table in tables]
-            html_content = '\n'.join(tables)
+            except FileNotFoundError:
+                raise RuntimeError(
+                    "latexmlc not found. Install LaTeXML: "
+                    "https://math.nist.gov/~BMiller/LaTeXML/get.html"
+                )
+            except Exception:
+                html_content = ''
 
-        except Exception:
-            html_content = ''
-
-        shutil.rmtree(cache_dir, ignore_errors=True)
         return html_content
 
     html_text = convert_latex_to_html(text)
@@ -284,3 +256,14 @@ def normalized_markdown_table(text):
     """Convert markdown table to normalized HTML matching OmniDocBench pipeline."""
     html_text = convert_markdown_to_html(text)
     return normalized_html_table(html_text)
+
+
+def normalize_table(text):
+    """Auto-detect table format (HTML, LaTeX, Markdown) and return normalized HTML."""
+    stripped = text.strip()
+    if "<table" in stripped.lower():
+        return normalized_html_table(text)
+    elif "\\begin{tabular}" in stripped or "\\begin{table}" in stripped:
+        return normalized_latex_table(text)
+    else:
+        return normalized_markdown_table(text)
