@@ -40,6 +40,24 @@ The dataset includes over 1,500 human quality ratings on 518 table pairs. The co
 
 ![Correlation of automated metrics with human scores](correlation_plots/correlation.png)
 
+Correlation of each metric with the averaged human scores (three annotators per table pair):
+
+| Metric | Pearson r | Spearman ρ | Kendall τ |
+|--------|----------:|-----------:|----------:|
+| TEDS | 0.684 | 0.717 | 0.558 |
+| TEDS struct. | 0.627 | 0.720 | 0.579 |
+| GriTS-Top | 0.633 | 0.735 | 0.597 |
+| GriTS-Con | 0.701 | 0.745 | 0.598 |
+| GriTS-Avg | 0.698 | 0.765 | 0.606 |
+| SCORE Index | 0.558 | 0.684 | 0.561 |
+| SCORE Content | 0.642 | 0.657 | 0.524 |
+| SCORE Content Shifted | 0.648 | 0.653 | 0.526 |
+| SCORE-Avg | 0.637 | 0.687 | 0.541 |
+| LLM: claude-opus-4.6 | 0.939 | 0.890 | 0.803 |
+| LLM: deepseek-v3.2 | 0.802 | 0.827 | 0.713 |
+| LLM: gemini-3-flash-preview | 0.927 | 0.889 | 0.799 |
+| LLM: gpt-5-mini | 0.888 | 0.827 | 0.739 |
+
 ## Data Format
 
 Each entry in `all_tables.json` pairs a ground truth table with its parser extractions, metric scores, and human ratings:

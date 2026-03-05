@@ -223,17 +223,20 @@ def main():
 
     metrics = extract_metric_vectors(rows)
 
-    # Print correlation table
-    print(f"\n{'Metric':<30} {'Pearson r':>10} {'Spearman ρ':>11} {'Kendall τ':>10}  {'n':>4}")
-    print("-" * 72)
+    # Compute correlations
     all_correlations = {}
     for name, (m_vals, h_vals) in metrics.items():
-        corrs = compute_correlations(m_vals, h_vals)
-        all_correlations[name] = corrs
-        print(
-            f"{name:<30} {corrs['Pearson r'][0]:>10.4f} "
-            f"{corrs['Spearman ρ'][0]:>11.4f} {corrs['Kendall τ'][0]:>10.4f}  {len(m_vals):>4}"
-        )
+        all_correlations[name] = compute_correlations(m_vals, h_vals)
+
+    # Print correlation table as Markdown
+    print()
+    print("| Metric | Pearson r | Spearman ρ | Kendall τ |")
+    print("|--------|----------:|-----------:|----------:|")
+    for name, corrs in all_correlations.items():
+        pr = corrs['Pearson r'][0]
+        sr = corrs['Spearman ρ'][0]
+        kt = corrs['Kendall τ'][0]
+        print(f"| {name} | {pr:.3f} | {sr:.3f} | {kt:.3f} |")
 
     # Plot
     OUTPUT_DIR.mkdir(exist_ok=True)
