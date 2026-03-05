@@ -30,12 +30,6 @@ System dependencies for rule-based metrics and human evaluation UI:
 - `pdflatex` and `pdftoppm` (e.g., via TeX Live)
 - `latexmlc` (for LaTeX-to-HTML normalization)
 
-Create a `.env` file with API keys:
-```
-ANTHROPIC_API_KEY=...
-OPENROUTER_API_KEY=...
-```
-
 ## Usage
 
 All scripts can be run via `uv run python <script>.py`.
