@@ -1,0 +1,15 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Compute LLM Scores",
+      "type": "shell",
+      "command": "uv run compute_llm_scores.py"
+    },
+    {
+      "label": "Correlation Analysis",
+      "type": "shell",
+      "command": "uv run correlation_analysis.py"
+    }
+  ]
+}

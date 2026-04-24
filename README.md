@@ -14,33 +14,39 @@ The dataset includes over 1,500 human quality ratings on 518 table pairs. The co
 
 Correlation of each metric with the averaged human scores (three annotators per table pair):
 
-| Metric | Pearson r | Spearman ρ | Kendall τ |
-|--------|----------:|-----------:|----------:|
-| TEDS | 0.684 | 0.717 | 0.558 |
-| TEDS struct. | 0.627 | 0.720 | 0.579 |
-| GriTS-Top | 0.633 | 0.735 | 0.597 |
-| GriTS-Con | 0.701 | 0.745 | 0.598 |
-| GriTS-Avg | 0.698 | 0.765 | 0.606 |
-| SCORE Index | 0.558 | 0.684 | 0.561 |
-| SCORE Content | 0.642 | 0.657 | 0.524 |
-| SCORE Content Shifted | 0.648 | 0.653 | 0.526 |
-| SCORE-Avg | 0.637 | 0.687 | 0.541 |
-| LLM: claude-opus-4.6 | 0.939 | 0.890 | 0.803 |
-| LLM: deepseek-v3.2 | 0.802 | 0.827 | 0.713 |
-| LLM: gemini-3-flash-preview | 0.927 | 0.889 | 0.799 |
-| LLM: gpt-5-mini | 0.888 | 0.827 | 0.739 |
+| Metric                      | Pearson r | Spearman ρ | Kendall τ | Cost / 1k pairs ($) |
+| --------------------------- | --------: | ---------: | --------: | ------------------: |
+| TEDS                        |     0.684 |      0.717 |     0.558 |                   — |
+| TEDS struct.                |     0.627 |      0.720 |     0.579 |                   — |
+| GriTS-Top                   |     0.633 |      0.735 |     0.597 |                   — |
+| GriTS-Con                   |     0.701 |      0.745 |     0.598 |                   — |
+| GriTS-Avg                   |     0.698 |      0.765 |     0.606 |                   — |
+| SCORE Index                 |     0.558 |      0.684 |     0.561 |                   — |
+| SCORE Content               |     0.642 |      0.657 |     0.524 |                   — |
+| SCORE Content Shifted       |     0.648 |      0.653 |     0.526 |                   — |
+| SCORE-Avg                   |     0.637 |      0.687 |     0.541 |                   — |
+| LLM: claude-opus-4.6        |     0.939 |      0.891 |     0.804 |                7.60 |
+| LLM: deepseek-v3.2          |     0.780 |      0.805 |     0.699 |                0.42 |
+| LLM: gemini-3-flash-preview |     0.924 |      0.892 |     0.803 |                0.78 |
+| LLM: gemini-3.1-flash-lite-preview |     0.909 |      0.851 |     0.754 |                0.36 |
+| LLM: gemma-4-26b-a4b-it     |     0.909 |      0.861 |     0.766 |                0.54 |
+| LLM: gemma-4-31b-it         |     0.929 |      0.884 |     0.796 |                0.18 |
+| LLM: gpt-5.4-nano           |     0.809 |      0.799 |     0.683 |                0.28 |
+| LLM: mistral-small-2603     |     0.756 |      0.799 |     0.685 |                0.28 |
+
+LLM judge costs are based on OpenRouter pricing as of 2026-04-24.
 
 ## Project Structure
 
-| File | Description |
-|---|---|
-| `all_tables.json` | Central dataset: ground truth tables, parser extractions, all metric scores, and human ratings |
-| `compute_metrics.py` | Compute rule-based metrics (TEDS, GriTS, SCORE) for all extractions |
-| `compute_llm_scores.py` | LLM-as-a-judge scoring via OpenRouter API |
-| `latex_to_html_claude.py` | Convert LaTeX ground truth tables to HTML (required by rule-based metrics) |
-| `human_eval.py` | Gradio web UI for human annotation (0–10 scoring) |
-| `correlation_analysis.py` | Correlation analysis and scatter plots (generates paper figures) |
-| `scorers/` | Metric implementations (TEDS, GriTS, SCORE, table normalization) |
+| File                      | Description                                                                                    |
+| ------------------------- | ---------------------------------------------------------------------------------------------- |
+| `all_tables.json`         | Central dataset: ground truth tables, parser extractions, all metric scores, and human ratings |
+| `compute_metrics.py`      | Compute rule-based metrics (TEDS, GriTS, SCORE) for all extractions                            |
+| `compute_llm_scores.py`   | LLM-as-a-judge scoring via OpenRouter API                                                      |
+| `latex_to_html_claude.py` | Convert LaTeX ground truth tables to HTML (required by rule-based metrics)                     |
+| `human_eval.py`           | Gradio web UI for human annotation (0–10 scoring)                                              |
+| `correlation_analysis.py` | Correlation analysis and scatter plots (generates paper figures)                               |
+| `scorers/`                | Metric implementations (TEDS, GriTS, SCORE, table normalization)                               |
 
 ## Reproducing
 
@@ -77,5 +83,3 @@ Each entry in `all_tables.json` pairs a ground truth table with its parser extra
       "human_scores": [8, 8, 7]
     }
   ]
-}
-```

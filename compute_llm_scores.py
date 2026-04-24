@@ -4,6 +4,7 @@
 import json
 import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -15,7 +16,7 @@ load_dotenv()
 
 DATA_PATH = Path(__file__).parent / "all_tables.json"
 
-MODEL = "openai/gpt-5-mini"
+MODEL = "anthropic/claude-opus-4.6"
 MAX_WORKERS = 8
 MAX_RETRIES = 10
 
@@ -34,7 +35,7 @@ Evaluate the extracted table using the following criteria:
 
 Note: Different output formats (markdown, HTML, plain text) are acceptable as long as no information is lost. Apply this key test: Could a reader who sees ONLY the extracted table — without access to the ground truth — unambiguously reconstruct every cell-to-header mapping and all content of the original table? If not, consider the parsing as failed and assign a low score.
 
-First, enumerate all errors and ambiguities found. Then assign a score from 0 to 10, where 10 is a perfect match.\
+First, enumerate up to 5 of the most significant errors and ambiguities found. Then assign a score from 0 to 10, where 10 is a perfect match.\
 """
 
 
@@ -50,6 +51,9 @@ def evaluate_table(client: OpenAI, gt_table: str, extracted_table: str) -> Table
             response = client.chat.completions.create(
                 model=MODEL,
                 messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+                top_p=1,
+                max_tokens=2048,
                 response_format={
                     "type": "json_schema",
                     "json_schema": {
@@ -63,6 +67,7 @@ def evaluate_table(client: OpenAI, gt_table: str, extracted_table: str) -> Table
         except Exception as e:
             if attempt < MAX_RETRIES - 1:
                 print(f"  Attempt {attempt + 1} failed: {e}. Retrying...")
+                time.sleep(2)
             else:
                 raise
 
@@ -88,7 +93,12 @@ def main():
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY environment variable is required.")
-    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=api_key,
+        max_retries=0,
+        timeout=30,
+    )
 
     lock = threading.Lock()
     done = 0

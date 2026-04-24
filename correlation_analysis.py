@@ -61,14 +61,17 @@ def extract_metric_vectors(rows: list[dict]) -> dict[str, tuple[np.ndarray, np.n
         "SCORE-Avg": ((score_content + score_index) / 2, human_arr),
     }
 
-    llm_scores: dict[str, list[float]] = defaultdict(list)
+    llm_pairs: dict[str, list[tuple[float, float]]] = defaultdict(list)
     for row in rows:
+        human_val = float(np.mean(row["human_scores"]))
         for entry in row["llm_scores"]:
-            llm_scores[entry["judge_model"]].append(entry["score"])
+            llm_pairs[entry["judge_model"]].append((entry["score"], human_val))
 
-    for model, scores in sorted(llm_scores.items()):
+    for model, pairs in sorted(llm_pairs.items()):
         label = model.split("/")[-1] if "/" in model else model
-        result[f"LLM: {label}"] = (np.array(scores), human_arr)
+        m_vals = np.array([p[0] for p in pairs])
+        h_vals = np.array([p[1] for p in pairs])
+        result[f"LLM: {label}"] = (m_vals, h_vals)
 
     return result
 
@@ -253,7 +256,7 @@ def main():
         ("TEDS", "TEDS (Rule-based)", palette[0]),
         ("LLM: deepseek-v3.2", "DeepSeek-v3.2 (LLM-as-a-Judge)", palette[1]),
         ("GriTS-Avg", "GriTS-Avg (Rule-based)", palette[2]),
-        ("LLM: gemini-3-flash-preview", "Gemini-3-Flash (LLM-as-a-Judge)", palette[3]),
+        ("LLM: gemma-4-31b-it", "Gemma-4-31B (LLM-as-a-Judge)", palette[3]),
         ("SCORE-Avg", "SCORE-Avg (Rule-based)", palette[4]),
         ("LLM: claude-opus-4.6", "Claude Opus 4.6 (LLM-as-a-Judge)", palette[6]),
     ]
