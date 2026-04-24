@@ -26,12 +26,12 @@ Correlation of each metric with the averaged human scores (three annotators per 
 | SCORE Content Shifted       |     0.648 |      0.653 |     0.526 |                   — |
 | SCORE-Avg                   |     0.637 |      0.687 |     0.541 |                   — |
 | LLM: claude-opus-4.6        |     0.939 |      0.891 |     0.804 |                7.60 |
-| LLM: deepseek-v3.2          |     0.780 |      0.805 |     0.699 |                0.42 |
-| LLM: gemini-3-flash-preview |     0.924 |      0.892 |     0.803 |                0.78 |
-| LLM: gemini-3.1-flash-lite-preview |     0.909 |      0.851 |     0.754 |                0.36 |
-| LLM: gemma-4-26b-a4b-it     |     0.909 |      0.861 |     0.766 |                0.54 |
 | LLM: gemma-4-31b-it         |     0.929 |      0.884 |     0.796 |                0.18 |
+| LLM: gemini-3-flash-preview |     0.924 |      0.892 |     0.803 |                0.78 |
+| LLM: gemma-4-26b-a4b-it     |     0.909 |      0.861 |     0.766 |                0.54 |
+| LLM: gemini-3.1-flash-lite-preview |     0.909 |      0.851 |     0.754 |                0.36 |
 | LLM: gpt-5.4-nano           |     0.809 |      0.799 |     0.683 |                0.28 |
+| LLM: deepseek-v3.2          |     0.780 |      0.805 |     0.699 |                0.42 |
 | LLM: mistral-small-2603     |     0.756 |      0.799 |     0.685 |                0.28 |
 
 LLM judge costs are based on OpenRouter pricing as of 2026-04-24.
