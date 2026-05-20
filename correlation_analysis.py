@@ -65,6 +65,8 @@ def extract_metric_vectors(rows: list[dict]) -> dict[str, tuple[np.ndarray, np.n
     for row in rows:
         human_val = float(np.mean(row["human_scores"]))
         for entry in row["llm_scores"]:
+            if entry["prompt_variant"] != "tuned":
+                continue
             llm_pairs[entry["judge_model"]].append((entry["score"], human_val))
 
     for model, pairs in sorted(llm_pairs.items()):
@@ -74,6 +76,52 @@ def extract_metric_vectors(rows: list[dict]) -> dict[str, tuple[np.ndarray, np.n
         result[f"LLM: {label}"] = (m_vals, h_vals)
 
     return result
+
+
+def print_prompt_variant_comparison(rows: list[dict]) -> None:
+    """Side-fact: per-model Pearson r for tuned vs tuned_no_cot vs naive, paired by extraction.
+
+    Both deltas are taken relative to the naive baseline so the two columns share an anchor:
+      Δ content = tuned_no_cot − naive   (engineered content, no CoT)
+      Δ full    = tuned − naive          (full tuned prompt, content + CoT)
+    """
+    variants = ("tuned", "tuned_no_cot", "naive")
+    # {model: {extraction_idx: {variant: score}}}
+    by_model: dict[str, dict[int, dict[str, int]]] = defaultdict(lambda: defaultdict(dict))
+    human_by_idx: dict[int, float] = {}
+    for idx, row in enumerate(rows):
+        human_by_idx[idx] = float(np.mean(row["human_scores"]))
+        for entry in row["llm_scores"]:
+            by_model[entry["judge_model"]][idx][entry["prompt_variant"]] = entry["score"]
+
+    rows_out = []
+    for model, per_ext in by_model.items():
+        paired = [
+            (per_ext[i]["tuned"], per_ext[i]["tuned_no_cot"], per_ext[i]["naive"], human_by_idx[i])
+            for i in per_ext if all(v in per_ext[i] for v in variants)
+        ]
+        if not paired:
+            continue
+        tuned, no_cot, naive, human = map(np.array, zip(*paired))
+        r_tuned = pearsonr(tuned, human)[0]
+        r_no_cot = pearsonr(no_cot, human)[0]
+        r_naive = pearsonr(naive, human)[0]
+        rows_out.append((model, len(paired), r_tuned, r_no_cot, r_naive,
+                         r_no_cot - r_naive, r_tuned - r_naive))
+
+    if not rows_out:
+        print("\nNo three-way paired samples available for prompt-variant comparison.")
+        return
+
+    rows_out.sort(key=lambda r: -r[6])  # largest Δ full first
+    print("\nPrompt sensitivity — Pearson r with human scores, three variants (paired):")
+    print("  Δ content = tuned_no_cot − naive   (engineered content over naive baseline)")
+    print("  Δ full    = tuned − naive          (full tuned prompt over naive baseline)\n")
+    print("| Model | n | Pearson (tuned) | Pearson (tuned_no_cot) | Pearson (naive) | Δ content | Δ full |")
+    print("|-------|--:|----------------:|-----------------------:|----------------:|----------:|-------:|")
+    for model, n, rt, rnc, rn, d_content, d_full in rows_out:
+        label = model.split("/")[-1] if "/" in model else model
+        print(f"| {label} | {n} | {rt:.3f} | {rnc:.3f} | {rn:.3f} | {d_content:+.3f} | {d_full:+.3f} |")
 
 
 def compute_correlations(
@@ -262,6 +310,8 @@ def main():
     ]
     make_figure(metrics, all_correlations, paper_specs,
                 OUTPUT_DIR / "correlation.png")
+
+    print_prompt_variant_comparison(rows)
 
 
 if __name__ == "__main__":
