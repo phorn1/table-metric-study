@@ -2,7 +2,7 @@
 
 Meta-evaluation of table extraction metrics against human judgment, accompanying the paper:
 
-> **Benchmarking PDF Parsers on Table Extraction with LLM-based Semantic Evaluation**
+> **Beyond String Matching: Semantic Evaluation of PDF Table Extraction**
 
 This repository provides implementations of rule-based table metrics (TEDS, GriTS, SCORE), LLM-as-a-judge scoring, a human evaluation interface, and the correlation analysis used to validate that LLM-based evaluation substantially outperforms rule-based metrics in agreement with human judgment.
 
