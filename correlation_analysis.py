@@ -61,6 +61,17 @@ def extract_metric_vectors(rows: list[dict]) -> dict[str, tuple[np.ndarray, np.n
         "SCORE-Avg": ((score_content + score_index) / 2, human_arr),
     }
 
+    tabxeval_pairs = [
+        (r["tabxeval"]["score"] * 10, float(np.mean(r["human_scores"])))
+        for r in rows
+        if "tabxeval" in r
+    ]
+    if tabxeval_pairs:
+        result["TabXEval"] = (
+            np.array([p[0] for p in tabxeval_pairs]),
+            np.array([p[1] for p in tabxeval_pairs]),
+        )
+
     llm_pairs: dict[str, list[tuple[float, float]]] = defaultdict(list)
     for row in rows:
         human_val = float(np.mean(row["human_scores"]))

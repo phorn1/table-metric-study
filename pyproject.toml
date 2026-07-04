@@ -20,6 +20,9 @@ dependencies = [
     "scipy-stubs~=1.17.0",
     "eval-metrics-core",
     "krippendorff>=0.8.2",
+    "thefuzz>=0.22.1",
+    "tabulate>=0.10.0",
+    "pandas>=3.0.0",
 ]
 
 [tool.uv.sources]

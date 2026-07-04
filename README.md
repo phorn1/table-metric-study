@@ -25,6 +25,7 @@ Correlation of each metric with the averaged human scores (three annotators per 
 | SCORE Content                      |     0.642 |      0.657 |     0.524 |                   — |
 | SCORE Content Shifted              |     0.648 |      0.653 |     0.526 |                   — |
 | SCORE-Avg                          |     0.637 |      0.687 |     0.541 |                   — |
+| TabXEval (gpt-4o)                  |     0.570 |      0.618 |     0.515 |               28.19 |
 | LLM: claude-opus-4.6               |     0.939 |      0.891 |     0.804 |                7.60 |
 | LLM: gemma-4-31b-it                |     0.929 |      0.884 |     0.796 |                0.18 |
 | LLM: gemini-3-flash-preview        |     0.924 |      0.892 |     0.803 |                0.78 |
@@ -34,7 +35,9 @@ Correlation of each metric with the averaged human scores (three annotators per 
 | LLM: deepseek-v3.2                 |     0.780 |      0.805 |     0.699 |                0.42 |
 | LLM: mistral-small-2603            |     0.756 |      0.799 |     0.685 |                0.28 |
 
-LLM judge costs are based on OpenRouter pricing as of 2026-04-24.
+LLM judge costs are based on OpenRouter pricing as of 2026-04-24. The TabXEval cost was measured on a 5-pair sample (two gpt-4o calls per pair) at OpenRouter pricing as of 2026-07-04.
+
+Notably, [TabXEval](https://github.com/CoRAL-ASU/TabXEval) — a two-phase LLM-based evaluation pipeline (alignment + fine-grained comparison, run here with its original prompts and gpt-4o judge) — correlates *worse* with human judgment than the rule-based metrics on this benchmark, despite costing more than any single-prompt LLM judge. Its penalty-based score saturates at the top: 311 of 518 pairs (60%) receive exactly 1.0, including extractions that humans rated as low as 0.7/10. Two caveats apply: the pipeline inherits the reference implementation's sampling parameters (temperature 0.1), so scores are not fully deterministic across runs, and TabXEval was designed for general table comparison rather than PDF-extraction evaluation specifically.
 
 ### Prompt sensitivity
 
@@ -86,10 +89,12 @@ The CoT scaffold and engineered content interact: gemma-4-26b and deepseek-v3.2 
 | `all_tables.json`         | Central dataset: ground truth tables, parser extractions, all metric scores, and human ratings |
 | `compute_metrics.py`      | Compute rule-based metrics (TEDS, GriTS, SCORE) for all extractions                            |
 | `compute_llm_scores.py`   | LLM-as-a-judge scoring via OpenRouter API                                                      |
+| `compute_tabxeval_scores.py` | TabXEval scoring (two-phase LLM alignment + comparison) via OpenRouter API                  |
 | `latex_to_html_claude.py` | Convert LaTeX ground truth tables to HTML (required by rule-based metrics)                     |
 | `human_eval.py`           | Gradio web UI for human annotation (0–10 scoring)                                              |
 | `correlation_analysis.py` | Correlation analysis and scatter plots (generates paper figures)                               |
 | `scorers/`                | Metric implementations (TEDS, GriTS, SCORE, table normalization)                               |
+| `scorers/tabxeval/`       | [TabXEval](https://github.com/CoRAL-ASU/TabXEval) pipeline (vendored, MIT) with original prompts and ported notebook scoring |
 
 ## Reproducing
 
@@ -104,6 +109,8 @@ System dependencies for rule-based metrics and human evaluation UI:
 - `latexmlc` (for LaTeX-to-HTML normalization)
 
 LLM scoring requires an OpenRouter API key (`export OPENROUTER_API_KEY=...`).
+
+TabXEval ([Pancholi et al., Findings of ACL 2025](https://arxiv.org/abs/2505.22176)) is included as an additional LLM-based baseline via `compute_tabxeval_scores.py`. It aligns ground truth and extraction with a rule-based fuzzy merge plus an LLM alignment call (TabAlign), classifies every non-exact cell difference with a second LLM call (TabCompare), and aggregates the classified differences into a penalty-based score in [0, 1]. The implementation under `scorers/tabxeval/` is vendored from the [official repository](https://github.com/CoRAL-ASU/TabXEval) (MIT License) with the original prompts and gpt-4o judge (via OpenRouter), and the scoring logic ported from its `eval_scores.ipynb`.
 
 ## Data Format
 
@@ -123,6 +130,9 @@ Each entry in `all_tables.json` pairs a ground truth table with its parser extra
       "llm_scores": [
         { "judge_model": "google/gemini-3-flash-preview", "score": 9, "errors": [...] }
       ],
+      "tabxeval": { "judge_model": "openai/gpt-4o", "score": 0.86 },
       "human_scores": [8, 8, 7]
     }
   ]
+}
+```
