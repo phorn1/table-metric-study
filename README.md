@@ -37,7 +37,7 @@ Correlation of each metric with the averaged human scores (three annotators per 
 
 LLM judge costs are based on OpenRouter pricing as of 2026-04-24. The TabXEval cost was measured on a 5-pair sample (two gpt-4o calls per pair) at OpenRouter pricing as of 2026-07-04.
 
-Notably, [TabXEval](https://github.com/CoRAL-ASU/TabXEval) — a two-phase LLM-based evaluation pipeline (alignment + fine-grained comparison, run here with its original prompts and gpt-4o judge) — correlates *worse* with human judgment than the rule-based metrics on this benchmark, despite costing more than any single-prompt LLM judge. Its penalty-based score saturates at the top: 311 of 518 pairs (60%) receive exactly 1.0, including extractions that humans rated as low as 0.7/10. Two caveats apply: the pipeline inherits the reference implementation's sampling parameters (temperature 0.1), so scores are not fully deterministic across runs, and TabXEval was designed for general table comparison rather than PDF-extraction evaluation specifically.
+Notably, [TabXEval](https://github.com/CoRAL-ASU/TabXEval) — a two-phase LLM pipeline (alignment + fine-grained comparison, run with its original prompts and gpt-4o judge) — correlates *worse* with human judgment than the rule-based metrics here, despite costing more than any single-prompt LLM judge. 60% of pairs score exactly 1.0, including 20 pairs with an average human rating below 5: its alignment step tends to silently repair structurally broken extractions (e.g. re-splitting merged rows), so the subsequent comparison finds no differences left to penalize.
 
 ### Prompt sensitivity
 
